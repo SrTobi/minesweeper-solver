@@ -1,0 +1,6 @@
+{
+    "rust-analyzer.cargo.allFeatures": true,
+    "rust-analyzer.checkOnSave.command": "clippy",
+    "editor.formatOnSave": true,
+    "editor.tabSize": 2,
+}
