@@ -28,7 +28,7 @@ impl BoardVec {
     BoardVec { x, y }
   }
 
-  pub fn around(self) -> impl Iterator<Item = BoardVec> {
+  pub fn neighbours(self) -> impl Iterator<Item = BoardVec> {
     DIRECTIONS.iter().map(move |&dir| dir + self)
   }
 }
@@ -84,7 +84,7 @@ impl<T> Board<T> {
 
   fn pos_to_index(&self, pos: BoardVec) -> Option<usize> {
     match (usize::try_from(pos.x), usize::try_from(pos.y)) {
-      (Ok(x), Ok(y)) if x < self.width as usize && y < self.height as usize => Some(x + y * (self.height as usize)),
+      (Ok(x), Ok(y)) if x < self.width as usize && y < self.height as usize => Some(x + y * (self.width as usize)),
       _ => None,
     }
   }
@@ -98,7 +98,7 @@ impl<T> Board<T> {
   }
 
   pub fn get_around(&self, pos: BoardVec) -> impl Iterator<Item = &T> {
-    pos.around().flat_map(|pos| self.get(pos))
+    pos.neighbours().flat_map(|pos| self.get(pos))
   }
 
   pub fn positions(&self) -> BoardPositionIterator {

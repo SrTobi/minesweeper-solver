@@ -26,8 +26,18 @@ impl Field {
 
   fn notify_mine(field: &mut Field) {
     if let Field::Empty(mines) = field {
-      assert!(*mines <= 8);
       *mines += 1;
+      //assert!(*mines <= 8);
+    }
+  }
+}
+
+impl fmt::Display for Field {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Field::Mine => write!(f, "X"),
+      Field::Empty(0) => write!(f, " "),
+      Field::Empty(mines) => write!(f, "{}", mines),
     }
   }
 }
@@ -49,7 +59,7 @@ impl GameSetup {
       if is_mine {
         mines += 1;
         board[pos] = Field::Mine;
-        for neighbour_pos in pos.around() {
+        for neighbour_pos in pos.neighbours() {
           if let Some(neighbour) = board.get_mut(neighbour_pos) {
             Field::notify_mine(neighbour);
           }
@@ -73,6 +83,20 @@ impl<B: Borrow<GameSetupBuilder>> From<B> for GameSetup {
   fn from(builder: B) -> Self {
     let builder: &GameSetupBuilder = builder.borrow();
     Self::new(&builder.mines)
+  }
+}
+
+impl fmt::Debug for GameSetup {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    for y in 0..self.height() {
+      for x in 0..self.width() {
+        let pos = BoardVec::new(x as i32, y as i32);
+        write!(f, "{}", self.board[pos])?;
+      }
+      writeln!(f)?;
+    }
+
+    Ok(())
   }
 }
 
@@ -153,6 +177,10 @@ impl Game {
     self.board().height
   }
 
+  pub fn is_visible(&self, pos: BoardVec) -> bool {
+    self.view[pos]
+  }
+
   pub fn open(&mut self, pos: BoardVec) -> bool {
     assert!(!self.view[pos]);
     if self.board()[pos].is_mine() {
@@ -165,7 +193,7 @@ impl Game {
     while let Some(pos) = explorer.pop() {
       self.view[pos] = true;
       if self.board()[pos].is_blank() {
-        explorer.enqueue_all(pos.around());
+        explorer.enqueue_all(pos.neighbours());
       }
     }
 
@@ -193,11 +221,11 @@ impl fmt::Debug for Game {
     for y in 0..self.height() {
       for x in 0..self.width() {
         let pos = BoardVec::new(x as i32, y as i32);
-        match self.board()[pos] {
-          Field::Mine => write!(f, "X")?,
-          Field::Empty(0) => write!(f, " ")?,
-          Field::Empty(mines) => write!(f, "{}", mines)?,
-        };
+        if self.is_visible(pos) {
+          write!(f, "{}", self.board()[pos])?;
+        } else {
+          write!(f, "░")?;
+        }
       }
       writeln!(f)?;
     }
