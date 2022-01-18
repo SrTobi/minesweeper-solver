@@ -1,3 +1,5 @@
+use core::fmt;
+use std::collections::VecDeque;
 use std::ops::{Add, Index, IndexMut, Neg, Sub};
 
 pub static NORTH: BoardVec = BoardVec::new(0, -1);
@@ -10,12 +12,12 @@ pub static WEST: BoardVec = BoardVec::new(-1, 0);
 pub static NORTH_WEST: BoardVec = BoardVec::new(-1, -1);
 pub static CENTER: BoardVec = BoardVec::new(0, 0);
 
-pub static DIRECTIONS: [BoardVec; 8] = [NORTH_WEST, NORTH, NORTH_EAST, EAST, SOUTH_EAST, SOUTH, SOUTH_WEST, WEST];
+pub static DIRECTIONS: [BoardVec; 8] = [NORTH_WEST, NORTH, NORTH_EAST, WEST, EAST, SOUTH_WEST, SOUTH, SOUTH_EAST];
 pub static CENTER_AND_DIRECTIONS: [BoardVec; 9] = [
   NORTH_WEST, NORTH, NORTH_EAST, WEST, CENTER, EAST, SOUTH_WEST, SOUTH, SOUTH_EAST,
 ];
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BoardVec {
   pub x: i32,
   pub y: i32,
@@ -24,6 +26,16 @@ pub struct BoardVec {
 impl BoardVec {
   pub const fn new(x: i32, y: i32) -> BoardVec {
     BoardVec { x, y }
+  }
+
+  pub fn around(self) -> impl Iterator<Item = BoardVec> {
+    DIRECTIONS.iter().map(move |&dir| dir + self)
+  }
+}
+
+impl fmt::Debug for BoardVec {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "({}, {})", self.x, self.y)
   }
 }
 
@@ -70,29 +82,38 @@ impl<T> Board<T> {
     }
   }
 
-  fn pos_to_index(&self, pos: BoardVec) -> usize {
-    usize::try_from(pos.x).unwrap() + (usize::try_from(pos.y).unwrap() * (self.height as usize))
+  fn pos_to_index(&self, pos: BoardVec) -> Option<usize> {
+    match (usize::try_from(pos.x), usize::try_from(pos.y)) {
+      (Ok(x), Ok(y)) if x < self.width as usize && y < self.height as usize => Some(x + y * (self.height as usize)),
+      _ => None,
+    }
   }
 
   pub fn get(&self, pos: BoardVec) -> Option<&T> {
-    self.fields.get(self.pos_to_index(pos))
+    self.pos_to_index(pos).and_then(|i| self.fields.get(i))
   }
 
   pub fn get_mut(&mut self, pos: BoardVec) -> Option<&mut T> {
-    let index = self.pos_to_index(pos);
-    self.fields.get_mut(index)
+    self.pos_to_index(pos).and_then(|i| self.fields.get_mut(i))
   }
 
-  pub fn get_around(&mut self, pos: BoardVec) -> impl Iterator<Item = &T> {
-    self.positions_around(pos).flat_map(|pos| self.get(pos))
+  pub fn get_around(&self, pos: BoardVec) -> impl Iterator<Item = &T> {
+    pos.around().flat_map(|pos| self.get(pos))
   }
 
   pub fn positions(&self) -> BoardPositionIterator {
     BoardPositionIterator::new(BoardVec::new(0, 0), self.width, self.height)
   }
+  pub fn enumerate(&self) -> impl Iterator<Item = (BoardVec, &T)> {
+    self.positions().zip(self.fields.iter())
+  }
 
-  pub fn positions_around(&self, pos: BoardVec) -> impl Iterator<Item = BoardVec> {
-    DIRECTIONS.iter().map(move |&dir| dir + pos)
+  pub fn enumerate_mut(&mut self) -> impl Iterator<Item = (BoardVec, &mut T)> {
+    self.positions().zip(self.fields.iter_mut())
+  }
+
+  pub fn iter(&self) -> impl Iterator<Item = &T> {
+    self.fields.iter()
   }
 }
 
@@ -100,13 +121,24 @@ impl<T> Index<BoardVec> for Board<T> {
   type Output = T;
 
   fn index(&self, index: BoardVec) -> &Self::Output {
-    self.get(index).unwrap()
+    self.get(index).unwrap_or_else(|| {
+      panic!(
+        "Cannot access position {:?} on board with size {}x{}",
+        index, self.width, self.height
+      )
+    })
   }
 }
 
 impl<T> IndexMut<BoardVec> for Board<T> {
   fn index_mut(&mut self, index: BoardVec) -> &mut T {
-    self.get_mut(index).unwrap()
+    let (width, height) = (self.width, self.height);
+    self.get_mut(index).unwrap_or_else(|| {
+      panic!(
+        "Cannot mut-access position {:?} on board with size {}x{}",
+        index, width, height
+      )
+    })
   }
 }
 
@@ -134,7 +166,7 @@ impl Iterator for BoardPositionIterator {
 
   fn next(&mut self) -> Option<Self::Item> {
     let pos = &mut self.next_pos;
-    if pos.x >= self.y_end {
+    if pos.y >= self.y_end {
       None
     } else {
       let result = *pos;
@@ -144,6 +176,43 @@ impl Iterator for BoardPositionIterator {
         pos.y += 1;
       }
       Some(result)
+    }
+  }
+}
+
+pub struct BoardExplorer {
+  queue: VecDeque<BoardVec>,
+  visited: Board<bool>,
+}
+
+impl BoardExplorer {
+  pub fn enqueue(&mut self, pos: BoardVec) -> bool {
+    if let Some(field) = self.visited.get_mut(pos) {
+      if !*field {
+        *field = true;
+        self.queue.push_back(pos);
+        return true;
+      }
+    }
+    false
+  }
+
+  pub fn enqueue_all(&mut self, all: impl IntoIterator<Item = BoardVec>) {
+    for pos in all {
+      self.enqueue(pos);
+    }
+  }
+
+  pub fn pop(&mut self) -> Option<BoardVec> {
+    self.queue.pop_front()
+  }
+}
+
+impl<T> From<&Board<T>> for BoardExplorer {
+  fn from(board: &Board<T>) -> Self {
+    Self {
+      queue: VecDeque::new(),
+      visited: Board::new(board.width, board.height, false),
     }
   }
 }
