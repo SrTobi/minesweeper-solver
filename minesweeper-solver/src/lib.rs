@@ -4,6 +4,7 @@ use std::borrow::Borrow;
 use board::{Board, BoardVec};
 use rand::prelude::SliceRandom;
 use rand::RngCore;
+use solver::State;
 
 use crate::board::BoardExplorer;
 
@@ -176,7 +177,7 @@ impl Game {
   }
 
   pub fn is_win(&self) -> bool {
-    self.hidden_fields == self.setup.mines 
+    self.hidden_fields == self.setup.mines
   }
 
   pub fn board(&self) -> &GameBoard {
@@ -226,6 +227,43 @@ impl Game {
     }
 
     Some(opened)
+  }
+
+  // todo: better tip 
+  pub fn tipp(&self) -> Vec<BoardVec> {
+    let state = State::from(self);
+
+    let mut suggestions: Vec<BoardVec> = state.suggestions().collect();
+    if suggestions.is_empty() {
+      suggestions = state.deep_suggestion();
+    }
+    suggestions
+  }
+
+  pub fn is_solvable(mut self) -> bool {
+    let mut state = State::from(&self);
+    loop {
+      if self.is_win() {
+        return true;
+      }
+
+      let mut suggestions = state.suggestions().collect::<Vec<_>>();
+      if suggestions.is_empty() {
+        suggestions = state.deep_suggestion();
+        if suggestions.is_empty() {
+          return false;
+        }
+      }
+
+      let mut mutator = state.into_mutator();
+      for suggestion in suggestions {
+        for opened in self.open(suggestion).unwrap() {
+          mutator.mark_explored(opened, self.view(opened).unwrap())
+        }
+      }
+
+      state = mutator.finish();
+    }
   }
 }
 
