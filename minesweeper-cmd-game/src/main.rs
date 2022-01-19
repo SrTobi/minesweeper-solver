@@ -1,6 +1,6 @@
-use minesweeper_ai::ai::State;
-use minesweeper_ai::board::BoardVec;
-use minesweeper_ai::{Game, GameSetupBuilder};
+use minesweeper_solver::board::BoardVec;
+use minesweeper_solver::solver::State;
+use minesweeper_solver::{Game, GameSetupBuilder};
 
 fn main() {
   let mut builder = GameSetupBuilder::new(200, 40);

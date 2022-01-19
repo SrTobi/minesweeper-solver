@@ -1,5 +1,5 @@
 [workspace]
 members = [
-	"minesweeper-ai",
-	"minesweeper-ai-game"
+	"minesweeper-solver",
+	"minesweeper-cmd-game"
 ]

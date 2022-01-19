@@ -7,8 +7,8 @@ use rand::RngCore;
 
 use crate::board::BoardExplorer;
 
-pub mod ai;
 pub mod board;
+pub mod solver;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum Field {
