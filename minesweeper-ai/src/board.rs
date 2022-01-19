@@ -28,6 +28,10 @@ impl BoardVec {
     BoardVec { x, y }
   }
 
+  pub fn with_neighbours(self) -> impl Iterator<Item = BoardVec> {
+    CENTER_AND_DIRECTIONS.iter().map(move |&dir| dir + self)
+  }
+
   pub fn neighbours(self) -> impl Iterator<Item = BoardVec> {
     DIRECTIONS.iter().map(move |&dir| dir + self)
   }
@@ -183,9 +187,14 @@ impl Iterator for BoardPositionIterator {
 pub struct BoardExplorer {
   queue: VecDeque<BoardVec>,
   visited: Board<bool>,
+  allow_multi: bool,
 }
 
 impl BoardExplorer {
+  pub fn set_allow_multiple_enqueue(&mut self, b: bool) {
+    self.allow_multi = b;
+  }
+
   pub fn enqueue(&mut self, pos: BoardVec) -> bool {
     if let Some(field) = self.visited.get_mut(pos) {
       if !*field {
@@ -204,7 +213,14 @@ impl BoardExplorer {
   }
 
   pub fn pop(&mut self) -> Option<BoardVec> {
-    self.queue.pop_front()
+    let result = self.queue.pop_front();
+    if self.allow_multi {
+      if let Some(pos) = result {
+        debug_assert!(self.visited[pos]);
+        self.visited[pos] = false;
+      }
+    }
+    result
   }
 }
 
@@ -213,6 +229,7 @@ impl<T> From<&Board<T>> for BoardExplorer {
     Self {
       queue: VecDeque::new(),
       visited: Board::new(board.width, board.height, false),
+      allow_multi: false,
     }
   }
 }

@@ -7,6 +7,7 @@ use rand::RngCore;
 
 use crate::board::BoardExplorer;
 
+pub mod ai;
 pub mod board;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -133,6 +134,12 @@ impl GameSetupBuilder {
     self.protected[pos] = true;
   }
 
+  pub fn protect_all(&mut self, all: impl IntoIterator<Item = BoardVec>) {
+    for pos in all {
+      self.protect(pos);
+    }
+  }
+
   pub fn add_random_mines(&mut self, mut mines: u32) -> bool {
     let mut possible_positions: Vec<_> = self.mines.positions().collect();
     possible_positions.shuffle(&mut self.rng);
@@ -181,23 +188,35 @@ impl Game {
     self.view[pos]
   }
 
-  pub fn open(&mut self, pos: BoardVec) -> bool {
-    assert!(!self.view[pos]);
+  pub fn view(&self, pos: BoardVec) -> Option<Field> {
+    if self.is_visible(pos) {
+      self.board().get(pos).copied()
+    } else {
+      None
+    }
+  }
+
+  pub fn open(&mut self, pos: BoardVec) -> Option<Vec<BoardVec>> {
+    //assert!(!self.is_visible(pos));
     if self.board()[pos].is_mine() {
-      return false;
+      return None;
     }
 
     let mut explorer = BoardExplorer::from(self.board());
     explorer.enqueue(pos);
 
+    let mut opened = Vec::new();
     while let Some(pos) = explorer.pop() {
-      self.view[pos] = true;
-      if self.board()[pos].is_blank() {
-        explorer.enqueue_all(pos.neighbours());
+      if !self.is_visible(pos) {
+        self.view[pos] = true;
+        opened.push(pos);
+        if self.board()[pos].is_blank() {
+          explorer.enqueue_all(pos.neighbours());
+        }
       }
     }
 
-    true
+    Some(opened)
   }
 }
 
