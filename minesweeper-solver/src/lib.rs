@@ -130,8 +130,10 @@ impl GameSetupBuilder {
   }
 
   pub fn protect(&mut self, pos: BoardVec) {
-    self.mines[pos] = false;
-    self.protected[pos] = true;
+    if self.mines.get(pos).is_some() {
+      self.mines[pos] = false;
+      self.protected[pos] = true;
+    }
   }
 
   pub fn protect_all(&mut self, all: impl IntoIterator<Item = BoardVec>) {
@@ -165,11 +167,16 @@ impl GameSetupBuilder {
 pub struct Game {
   setup: GameSetup,
   view: ViewBoard,
+  hidden_fields: u32,
 }
 
 impl Game {
   pub fn setup(&self) -> &GameSetup {
     &self.setup
+  }
+
+  pub fn is_win(&self) -> bool {
+    self.hidden_fields == self.setup.mines 
   }
 
   pub fn board(&self) -> &GameBoard {
@@ -209,6 +216,8 @@ impl Game {
     while let Some(pos) = explorer.pop() {
       if !self.is_visible(pos) {
         self.view[pos] = true;
+        self.hidden_fields -= 1;
+        debug_assert!(self.hidden_fields >= self.setup.mines);
         opened.push(pos);
         if self.board()[pos].is_blank() {
           explorer.enqueue_all(pos.neighbours());
@@ -224,6 +233,7 @@ impl From<GameSetup> for Game {
   fn from(setup: GameSetup) -> Self {
     Self {
       view: ViewBoard::new(setup.width(), setup.height(), false),
+      hidden_fields: setup.width() * setup.height(),
       setup,
     }
   }

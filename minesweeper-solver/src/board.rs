@@ -184,6 +184,7 @@ impl Iterator for BoardPositionIterator {
   }
 }
 
+#[derive(Clone)]
 pub struct BoardExplorer {
   queue: VecDeque<BoardVec>,
   visited: Board<bool>,

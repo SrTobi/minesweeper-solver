@@ -1,4 +1,5 @@
 use core::fmt;
+use std::collections::BinaryHeap;
 
 use crate::board::{Board, BoardExplorer, BoardVec};
 use crate::{Field, Game};
@@ -63,6 +64,27 @@ impl State {
   pub fn into_mutator(self) -> StateMutator {
     StateMutator::new(self)
   }
+
+  pub fn deep_suggestion(&self) -> Vec<BoardVec> {
+    debug_assert!(self.suggestions().next() == None);
+    guess_run(self)
+  }
+
+  fn find_guess_positions(&self) -> BinaryHeap<GuessPos> {
+    let board = &self.board;
+    let mut result = BinaryHeap::new();
+    for pos in self.board.positions() {
+      if let Explored(explored) = board[pos] {
+        if explored.unknowns > 0 && explored.mines > 0 {
+          assert!(explored.mines_left > 0);
+          let impact = (8 - explored.unknowns) * 1000 / explored.mines_left;
+          result.push(GuessPos { impact, pos });
+        }
+      }
+    }
+
+    result
+  }
 }
 
 impl From<&Game> for State {
@@ -102,6 +124,7 @@ impl fmt::Debug for State {
   }
 }
 
+#[derive(Clone)]
 pub struct StateMutator {
   state: State,
   queue: BoardExplorer,
@@ -158,17 +181,21 @@ impl StateMutator {
     }
   }
 
-  fn mark_mine(&mut self, pos: BoardVec) {
+  fn mark_mine(&mut self, pos: BoardVec) -> Result<(), BoardVec> {
     match self.state.board[pos] {
       Unknown => {
-        assert!(self.state.mines_left > 0);
+        if self.state.mines_left == 0 {
+          return Err(pos);
+        }
         self.state.mines_left -= 1;
         self.state.board[pos] = Mine;
 
         for neighbour_pos in pos.neighbours() {
           if let Some(Explored(explored)) = self.state.board.get_mut(neighbour_pos) {
-            debug_assert!(explored.mines_left > 0);
-            debug_assert!(explored.unknowns > 0);
+            if explored.mines_left == 0 || explored.unknowns < explored.mines_left {
+              return Err(pos);
+            }
+
             explored.mines_left -= 1;
             explored.unknowns -= 1;
             let explored = *explored;
@@ -179,15 +206,20 @@ impl StateMutator {
       Mine => (),
       Explored(_) | NoMine => panic!("We deduced that this field cannot be a mine."),
     }
+
+    Ok(())
   }
 
-  fn mark_no_mine(&mut self, pos: BoardVec) {
+  fn mark_no_mine(&mut self, pos: BoardVec) -> Result<(), BoardVec> {
     match self.state.board[pos] {
       Unknown => {
         self.state.board[pos] = NoMine;
         for neighbour_pos in pos.neighbours() {
           if let Some(Explored(explored)) = self.state.board.get_mut(neighbour_pos) {
             debug_assert!(explored.unknowns > 0);
+            if explored.unknowns <= explored.mines_left {
+              return Err(pos);
+            }
             explored.unknowns -= 1;
             let explored = *explored;
             self.enqueue(neighbour_pos, explored);
@@ -197,6 +229,7 @@ impl StateMutator {
       NoMine | Explored(_) => (),
       Mine => panic!("We deduced that this field must be a mine."),
     }
+    Ok(())
   }
 
   fn enqueue(&mut self, pos: BoardVec, explored: ExploredKnowlede) {
@@ -204,8 +237,11 @@ impl StateMutator {
       self.queue.enqueue(pos);
     }
   }
+  pub fn finish(self) -> State {
+    self.finish_inner().unwrap()
+  }
 
-  pub fn finish(mut self) -> State {
+  fn finish_inner(mut self) -> Result<State, BoardVec> {
     self.queue.set_allow_multiple_enqueue(true);
     while let Some(pos) = self.queue.pop() {
       let explored = if let Explored(explored) = &self.state.board[pos] {
@@ -217,14 +253,14 @@ impl StateMutator {
         NeighboursAreNotMines => {
           for neighbour_pos in pos.neighbours() {
             if let Some(Unknown) = self.state.board.get(neighbour_pos) {
-              self.mark_no_mine(neighbour_pos);
+              self.mark_no_mine(neighbour_pos)?;
             }
           }
         }
         NeighboursAreMines => {
           for neighbour_pos in pos.neighbours() {
             if let Some(Unknown) = self.state.board.get(neighbour_pos) {
-              self.mark_mine(neighbour_pos);
+              self.mark_mine(neighbour_pos)?;
             }
           }
         }
@@ -232,6 +268,61 @@ impl StateMutator {
       }
     }
 
-    self.state
+    Ok(self.state)
   }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct GuessPos {
+  impact: u32,
+  pos: BoardVec,
+}
+
+impl Ord for GuessPos {
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    self
+      .impact
+      .cmp(&other.impact)
+      .then_with(|| self.pos.x.cmp(&other.pos.x))
+      .then_with(|| self.pos.y.cmp(&other.pos.y))
+  }
+}
+
+impl PartialOrd for GuessPos {
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    Some(self.cmp(other))
+  }
+}
+
+fn guess_run(state: &State) -> Vec<BoardVec> {
+  let mut guess_positions = state.find_guess_positions();
+
+  'guess_loop: while let Some(GuessPos { pos, .. }) = guess_positions.pop() {
+    //println!("===== {:?} ====", pos);
+    let mut succeeded = None;
+    let mut result = Vec::new();
+    for neighbour_pos in pos.neighbours() {
+      if let Some(Unknown) = state.board.get(neighbour_pos) {
+        let mut mutator = state.clone().into_mutator();
+        mutator.mark_mine(neighbour_pos).unwrap();
+        match (mutator.finish_inner(), &succeeded) {
+          (Ok(state), Some(succeeded)) if &state != succeeded => {
+            //println!("tried:\n{:?}\nHad:\n{:?}", succeeded, state);
+            continue 'guess_loop;
+          }
+          (Ok(state), _) => succeeded = Some(state),
+          (Err(_), _) => result.push(neighbour_pos),
+        }
+      }
+    }
+
+    if let Some(state) = succeeded {
+      result.extend(state.suggestions());
+      result.sort_by(|a, b| a.x.cmp(&b.x).then(a.y.cmp(&a.y)));
+      result.dedup();
+      return result;
+    }
+  }
+
+  Vec::new()
 }
